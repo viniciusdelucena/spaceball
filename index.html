@@ -503,15 +503,17 @@ function makeEmblemTexture() {
   g.lineCap = 'round';
   g.lineJoin = 'round';
 
-  const cx = 1024, cy = 512, a = 618;     // lemniscata: extremos em x=406 (braço do V) e x=1642 (haste do K)
+  // lemniscata menor e centralizada: sobra um vão entre o ∞ e as letras (sem encostar)
+  const cx = 1024, cy = 512, a = 500;
+  const kx = 1670;                         // posição da haste do K
 
   function strokeShapes() {
     // V
     g.beginPath(); g.moveTo(218, 290); g.lineTo(338, 740); g.lineTo(470, 290); g.stroke();
     // K
-    g.beginPath(); g.moveTo(cx + a, 290); g.lineTo(cx + a, 740); g.stroke();
-    g.beginPath(); g.moveTo(cx + a, 525); g.lineTo(1882, 290); g.stroke();
-    g.beginPath(); g.moveTo(cx + a, 525); g.lineTo(1892, 740); g.stroke();
+    g.beginPath(); g.moveTo(kx, 290); g.lineTo(kx, 740); g.stroke();
+    g.beginPath(); g.moveTo(kx, 525); g.lineTo(1900, 290); g.stroke();
+    g.beginPath(); g.moveTo(kx, 525); g.lineTo(1910, 740); g.stroke();
     // ∞ (lemniscata de Bernoulli) ligando as duas letras
     g.beginPath();
     for (let i = 0; i <= 480; i++) {
@@ -714,13 +716,34 @@ function flyToEmblem() {
   const dW = (EMBLEM_W / 0.62) / (2 * tanH * camera.aspect);
   const dH = (EMBLEM_W / 2 / 0.55) / (2 * tanH);
   fly = {
-    t: 0, dur: 2.8,
+    mode: 'in', t: 0, dur: 2.8,
     fromDir: camera.position.clone().normalize(),
     fromDist: camera.position.length(),
     toDist: R + Math.max(dW, dH, 0.3)
   };
 }
-document.getElementById('find').addEventListener('click', flyToEmblem);
+function flyAway() {
+  fly = {
+    mode: 'out', t: 0, dur: 2.4,
+    fromDir: camera.position.clone().normalize(),
+    fromDist: camera.position.length(),
+    toDist: 6.0
+  };
+}
+const findBtn = document.getElementById('find');
+findBtn.addEventListener('click', () => {
+  const near = (fly && fly.mode === 'in') || (!fly && camera.position.length() < 2.5);
+  if (near) flyAway(); else flyToEmblem();
+});
+let btnNear = null;
+function updateBtn() {
+  const near = (fly ? fly.mode === 'in' : camera.position.length() < 2.5);
+  if (near === btnNear) return;
+  btnNear = near;
+  findBtn.textContent = near ? '⤺' : '◎';
+  findBtn.title = near ? 'Afastar do planeta' : 'Localizar o símbolo no planeta';
+  findBtn.setAttribute('aria-label', findBtn.title);
+}
 controls.addEventListener('start', () => { fly = null; });
 renderer.domElement.addEventListener('wheel', () => { fly = null; }, { passive: true });
 
@@ -817,14 +840,20 @@ function animate() {
   if (fly) {
     fly.t += dt;
     const k = ease(Math.min(1, fly.t / fly.dur));
-    const to = emblemWorldDir(_a);
-    const q = new THREE.Quaternion().setFromUnitVectors(fly.fromDir, to);
-    const qi = new THREE.Quaternion().slerp(q, k);
-    const dir = fly.fromDir.clone().applyQuaternion(qi);
+    let dir;
+    if (fly.mode === 'in') {
+      const to = emblemWorldDir(_a);
+      const q = new THREE.Quaternion().setFromUnitVectors(fly.fromDir, to);
+      const qi = new THREE.Quaternion().slerp(q, k);
+      dir = fly.fromDir.clone().applyQuaternion(qi);
+    } else {
+      dir = fly.fromDir.clone();             // recua em linha reta, sem atravessar o planeta
+    }
     camera.position.copy(dir.multiplyScalar(THREE.MathUtils.lerp(fly.fromDist, fly.toDist, k)));
     if (fly.t >= fly.dur) fly = null;
   }
 
+  updateBtn();
   controls.autoRotateSpeed = CONFIG.autoRotate * smooth(2.0, 6.0, camDist);
   controls.update();
   composer.render();
